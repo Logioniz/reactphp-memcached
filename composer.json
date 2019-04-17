@@ -1,0 +1,21 @@
+{
+    "name": "logioniz/react-memcached",
+    "description": "Memcached client implementation for ReactPHP.",
+    "keywords": ["Memcached", "database", "client", "async", "ReactPHP"],
+    "homepage": "https://github.com/Logioniz/reactphp-memcached",
+    "authors": [
+        {
+            "name": "Stavrov Alexey",
+            "email": "logioniz@ya.ru"
+        }
+    ],
+    "require": {
+        "php": ">=7.0",
+        "react/event-loop": "^1.0 || ^0.5",
+        "react/promise": "^2.0 || ^1.1",
+        "react/socket": "^1.1"
+    },
+    "autoload": {
+        "psr-4": { "Logioniz\\React\\Memcached\\": "src/" }
+    }
+}
