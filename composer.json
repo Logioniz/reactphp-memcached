@@ -9,6 +9,7 @@
             "email": "logioniz@ya.ru"
         }
     ],
+    "license": "MIT",
     "require": {
         "php": ">=7.0",
         "react/event-loop": "^1.0 || ^0.5",
