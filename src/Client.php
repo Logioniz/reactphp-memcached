@@ -4,6 +4,8 @@ namespace Logioniz\React\Memcached;
 use React\EventLoop\LoopInterface;
 use React\Socket\ConnectionInterface;
 use React\Socket\Connector;
+use React\Promise\PromiseInterface;
+use Logioniz\React\Memcached\Exception\NoRequestException;
 
 class Client
 {
@@ -23,7 +25,7 @@ class Client
         $this->serializer = $serializer ?? new Serializer();
     }
 
-    public function __call($name, $args)
+    public function __call($name, $args): PromiseInterface
     {
         $that = $this;
 
@@ -48,8 +50,8 @@ class Client
 
         return $this->promise->then(
             function (ConnectionInterface $stream) use ($that, $name, $args) {
-                $request = new Request($name, $args, $this->serializer);
-                array_push($this->queue, $request);
+                $request = new Request($name, $args, $that->serializer);
+                array_push($that->queue, $request);
 
                 // echo '>>> ' . '"' . $request->message . '"' . PHP_EOL;
                 $stream->write($request->message);
@@ -59,14 +61,14 @@ class Client
         );
     }
 
-    private function parse()
+    private function parse(): void
     {
         while (count($this->queue) && $this->queue[0]->noreply) {
             array_shift($this->queue);
         }
 
         if (count($this->queue) === 0)
-            throw new \Exception("Recieve response for no request", 1);
+            throw new NoRequestException('Recieve response for no request');
 
         $request = $this->queue[0];
         $response = new Response($request, $this->serializer);

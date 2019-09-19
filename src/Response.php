@@ -1,6 +1,8 @@
 <?php
 namespace Logioniz\React\Memcached;
 
+use Logioniz\React\Memcached\Exception\UnknownResponseException;
+
 class Response
 {
     private $request;
@@ -25,7 +27,7 @@ class Response
 
             $response = substr($data, 0, $index);
             if (!in_array($response, ['STORED', 'NOT_STORED']))
-                throw new \Exception("Recieve unknown response for command set", 1);
+                throw new UnknownResponseException('Recieve unknown response for command set: ' . $response);
 
             $this->response = $response;
 
@@ -48,7 +50,7 @@ class Response
                 }
 
                 if (!preg_match('/VALUE ([^\s]+) ([\d]+) ([\d]+)(?: ([\d]+))?/', $response, $matches))
-                    throw new \Exception("Recieve unknown response for command get/gets", 1);
+                    throw new UnknownResponseException('Recieve unknown response for command get/gets: ' . $response);
 
                 $key   = $matches[1];
                 $flags = (int)$matches[2];
