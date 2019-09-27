@@ -114,7 +114,7 @@ class Client extends EventEmitter
                 return;
             }
 
-            $request = array_shift($this->queue);
+            $request = $this->queue[0];
 
             $exception = null;
             try {
@@ -123,6 +123,8 @@ class Client extends EventEmitter
             } catch (\Exception $e) {
                 $exception = $e;
             }
+
+            array_shift($this->queue);
 
             $exception ? $request->reject($e) : $request->resolve($response->message);
 
