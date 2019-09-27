@@ -5,10 +5,12 @@ use Logioniz\React\Memcached\Exception\UnknownResponseException;
 
 class Response
 {
+    const LINE_END = "\r\n";
+
     private $request;
     private $serializer;
 
-    public $response;
+    public $message;
 
     public function __construct(Request $request, SerializerInterface $serializer)
     {
@@ -16,80 +18,92 @@ class Response
         $this->serializer = $serializer;
     }
 
-    public function parseResponse(&$originData)
+    public static function parseResponse(Request $request, SerializerInterface $serializer, string &$data): ?self
+    {
+        $response = new self($request, $serializer);
+        if ($response->isMultiLineResponse($response->request->command))
+            return $response->parseMultiLineResponse($data);
+        return $response->parseSingleLineResponse($data);
+    }
+
+    protected function parseSingleLineResponse(string &$originData): ?self
+    {
+        $index = strpos($originData, self::LINE_END);
+        if ($index === false) return null;
+
+        $response = substr($originData, 0, $index);
+        $originData = substr($originData, $index + strlen(self::LINE_END));
+
+        $this->message = $response;
+        return $this;
+    }
+
+    protected function parseMultiLineResponse(string &$originData): ?self
     {
         $data = $originData;
+        list($responseLength, $responses) = [0, []];
 
-        if ($this->request->command === 'set') {
-            $index = strpos($data, "\r\n");
-            if ($index === false)
-                return null;
+        while (strlen($data) > 0) {
+            $index = strpos($data, self::LINE_END);
+            if ($index === false) return null;
 
             $response = substr($data, 0, $index);
-            if (!in_array($response, ['STORED', 'NOT_STORED']))
-                throw new UnknownResponseException('Recieve unknown response for command set: ' . $response);
 
-            $this->response = $response;
+            $data = substr($data, $index + strlen(self::LINE_END));
+            $responseLength += $index + strlen(self::LINE_END);
 
-            $originData = substr($originData, $index + 2);
+            if ($response === 'END') break;
 
-            return true;
-        } elseif (in_array($this->request->command, ['get', 'gets'])) {
-            $responses = [];
-            $responseLength = 0;
-            while (strlen($data) > 0) {
-                $index = strpos($data, "\r\n");
-                if ($index === false)
-                    return null;
-
-                $response = substr($data, 0, $index);
-
-                if (strpos($response, "END") === 0) {
-                    $responseLength += $index + 2;
-                    break;
-                }
-
+            if ($this->isCommandLikeGet()) {
                 if (!preg_match('/VALUE ([^\s]+) ([\d]+) ([\d]+)(?: ([\d]+))?/', $response, $matches))
-                    throw new UnknownResponseException('Recieve unknown response for command get/gets: ' . $response);
+                    throw new UnknownResponseException("Recieve unknown response for command {$this->request->command}: " . $response);
 
-                $key   = $matches[1];
-                $flags = (int)$matches[2];
-                $bytes = (int)$matches[3];
-                $cas   = null;
+                list($key, $flags, $bytes) = [$matches[1], (int)$matches[2], (int)$matches[3]];
+                $cas = count($matches) > 4 ? (int)$matches[4] : null;
 
-                if (count($matches) > 4)
-                    $cas = (int)$matches[4];
+                if ($bytes + strlen(self::LINE_END) > strlen($data)) return null;
 
-                $itemLen = $index + 2 + $bytes + 2;
-
-                if ($itemLen > strlen($data))
-                    return false;
-
-                $rawValue = substr($data, $index + 2, $bytes);
+                $rawValue = substr($data, 0, $bytes);
                 $value = $this->serializer->unserialize($flags, $rawValue);
 
-                if ($this->request->command === 'get') {
-                    $responses[$key] = $value;
-                } else {
+                if ($this->isWithCAS()) {
                     $responses[$key] = [
                         'cas'   => $cas,
                         'value' => $value
                     ];
+                } else {
+                    $responses[$key] = $value;
                 }
 
-                $responseLength += $itemLen;
-                $data = substr($data, $itemLen);
-            }
-
-            if ($this->request->info->oneKey) {
-                $this->response = count($responses) > 0 ? $responses[array_keys($responses)[0]] : null;
+                $data = substr($data, $bytes + strlen(self::LINE_END));
+                $responseLength += $bytes + strlen(self::LINE_END);
             } else {
-                $this->response = $responses;
+                array_push($responses, $response);
             }
-
-            $originData = substr($originData, $responseLength);
-
-            return true;
         }
+
+        if ($this->isCommandLikeGet() && $this->request->oneKey) {
+            $this->message = count($responses) > 0 ? $responses[array_keys($responses)[0]] : null;
+        } else {
+            $this->message = $responses;
+        }
+
+        $originData = substr($originData, $responseLength);
+        return $this;
+    }
+
+    protected function isMultiLineResponse(): bool
+    {
+        return in_array($this->request->command, ['get', 'gets', 'gat', 'gats', 'stats']);
+    }
+
+    protected function isCommandLikeGet(): bool
+    {
+        return in_array($this->request->command, ['get', 'gets', 'gat', 'gats']);
+    }
+
+    protected function isWithCAS(): bool
+    {
+        return in_array($this->request->command, ['gets', 'gats']);
     }
 }

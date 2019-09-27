@@ -6,8 +6,9 @@ use React\Socket\ConnectionInterface;
 use React\Socket\Connector;
 use React\Promise\PromiseInterface;
 use Logioniz\React\Memcached\Exception\NoRequestException;
+use Evenement\EventEmitter;
 
-class Client
+class Client extends EventEmitter
 {
     private $promise;
     private $loop;
@@ -16,6 +17,8 @@ class Client
     private $queue;
     private $serializer;
     private $options;
+    private $isWatch;
+    private $debug;
 
     public function __construct(string $uri, LoopInterface $loop, array $options = [], ?SerializerInterface $serializer = null)
     {
@@ -24,6 +27,8 @@ class Client
         $this->data = '';
         $this->queue = [];
         $this->options = $options;
+        $this->isWatch = false;
+        $this->debug = false;
         $this->serializer = $serializer ?? new Serializer();
     }
 
@@ -40,7 +45,11 @@ class Client
                     });
 
                     $stream->on('data', function ($chunk) use ($that) {
-                        // echo '<<<< ' . '"' . $chunk . '"' . PHP_EOL;
+                        if ($that->debug) fwrite(STDERR, "<<< \"{$chunk}\"" . PHP_EOL);
+                        if ($that->isWatch) {
+                            $that->emit('data', [$chunk]);
+                            return;
+                        }
                         $that->data .= $chunk;
                         $that->parse();
                     });
@@ -52,15 +61,28 @@ class Client
 
         return $this->promise->then(
             function (ConnectionInterface $stream) use ($that, $name, $args) {
-                $request = new Request($name, $args, $that->serializer);
-                array_push($that->queue, $request);
 
-                // echo '>>> ' . '"' . $request->message . '"' . PHP_EOL;
-                $stream->write($request->message);
+                try{
+                    $request = new Request($that->loop, $name, $args, $that->serializer);
+                } catch (\Exception $e) {
+                    if ($that->debug) fwrite(STDERR, $e);
+                    return React\Promise\reject($e);
+                }
+
+                if ($request->isValid()) {
+                    array_push($that->queue, $request);
+                    $stream->write($request->message);
+                    if ($that->debug) fwrite(STDERR, ">>> \"{$request->message}\"" . PHP_EOL);
+                }
 
                 return $request->promise();
             }
         );
+    }
+
+    public function setDebug(bool $debug): void
+    {
+        $this->debug = $debug;
     }
 
     public function close(): void
@@ -87,21 +109,24 @@ class Client
                 array_shift($this->queue);
             }
 
-            if (count($this->queue) === 0)
-                throw new NoRequestException('Recieve response for no request');
-
-            $request = $this->queue[0];
-            $response = new Response($request, $this->serializer);
-
-            try {
-                if (!$response->parseResponse($this->data)) return;
-            } catch (\Exception $e) {
-                $request->reject($e);
+            if (count($this->queue) === 0) {
+                $this->data = '';
+                return;
             }
 
-            array_shift($this->queue);
+            $request = array_shift($this->queue);
 
-            $request->resolve($response->response);
+            $exception = null;
+            try {
+                $response = Response::parseResponse($request, $this->serializer, $this->data);
+                if ($response === null) return;
+            } catch (\Exception $e) {
+                $exception = $e;
+            }
+
+            $exception ? $request->reject($e) : $request->resolve($response->message);
+
+            if ($request->command === 'watch') $this->isWatch = true;
 
             $prevDataLength = $dataLength;
             $dataLength = strlen($this->data);

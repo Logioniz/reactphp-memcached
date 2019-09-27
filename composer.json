@@ -18,5 +18,11 @@
     },
     "autoload": {
         "psr-4": { "Logioniz\\React\\Memcached\\": "src/" }
+    },
+    "autoload-dev": {
+        "psr-4": { "Logioniz\\Tests\\React\\Memcached\\": "tests" }
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^8.3"
     }
 }
