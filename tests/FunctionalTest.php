@@ -38,6 +38,19 @@ class FunctionalTest extends TestCase
         $this->loop->run();
     }
 
+    public function testNotExists(): void
+    {
+        $that = $this;
+        $this->client->delete('test')
+            ->then($this->expectCallableOnce());
+        $this->client->get('test')
+            ->then($this->expectCallableOnceWith(null))
+            ->then(function () use ($that) {
+                $that->loop->stop();
+            });
+        $this->loop->run();
+    }
+
     /**
      * @dataProvider getManyDataProvider
      */
@@ -349,7 +362,9 @@ class FunctionalTest extends TestCase
             ['string', 'string test'],
             ['0', 0],
             ['1', 123],
-            ['null', null]
+            ['null', null],
+            ['key', "VALUE qwe 0 3\r\nqwe\r\nEND\r\nVALUE asd 0 3\r\asd\r\nEND\r\nVALUE zxc 0 3\r\zxc\r\nEND"],
+            ['key', str_repeat('a', 1000000)],
         ];
     }
 
