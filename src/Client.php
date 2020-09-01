@@ -55,6 +55,10 @@ class Client extends EventEmitter
                     });
 
                     return $stream;
+                },
+                function ($error) use ($that) {
+                    $that->promise = null;
+                    throw $error;
                 }
             );
         }
